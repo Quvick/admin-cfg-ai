@@ -3,598 +3,500 @@
 JSON-shaped reference for the `delivery` object.
 
 Notes:
-- This file intentionally mirrors the API response structure.
+
+- This file mirrors the API response structure for a single area of channel type `delivery`.
 - It uses `jsonc` style so descriptions can live next to fields.
+- The shape is the same `Area` shape used by `takeaway` and `tablePayments`; the difference is that delivery surfaces zone-strategy configuration (`distances`, `polygons`, `fixed`), door-delivery toggles, address-field rules, and a delivery-service / courier integration.
+- Editor lives at the delivery feature page and is gated by both the `canOrderDelivery` company feature flag and the corresponding client-feature. The whole settings form is also disabled / partially hidden when the company is in chain-ordering sync mode.
+- Working hours are edited in a dedicated WorkingHoursForm block; on save, `workTime` is stripped from the payload because the working-hours form has its own save call. `allowNoStreetNumber` and `position` are also stripped on save.
+- Validations enforced before save:
+  - At least one entry in `paymentMethods` must be true (cash / card / bill / online).
+  - `time.allowASAP || time.allowTime` must be true.
+  - `orderAutoAcceptance.defaultPreparingTime >= 5` (when auto-acceptance is active).
+- Phone verification toggle has a guard: enabling it shows a warning toast if the `smsDeliveryTakeaway` feature is not active.
 - Relations between `sections`, `categories`, and `items` are preserved through ID references.
-- The overall menu structure is similar to `takeaway`, but this object also includes delivery zones, delivery pricing, address behavior, and courier-related ordering rules.
 
 ```jsonc
 {
   "_id": {
     "type": "string",
-    "meaning": "Internal delivery configuration identifier."
+    "behavior": "Server-managed.",
+    "meaning": "Internal area identifier."
   },
   "active": {
     "type": "boolean",
+    "behavior": "When the company customization restricts feature-state changes for `canOrderDelivery`, the toggle is hidden from non chain-owner users.",
     "meaning": "Global active state of the delivery channel."
   },
-  "categories": {
-    "type": "array",
-    "meaning": "List of delivery categories. Categories usually belong to sections and group items.",
-    "itemShape": {
-      "_id": {
-        "type": "string",
-        "meaning": "Internal category identifier."
-      },
-      "active": {
-        "type": "boolean",
-        "meaning": "Category active state."
-      },
-      "createdAt": {
-        "type": "string",
-        "format": "ISO datetime",
-        "meaning": "Category creation timestamp."
-      },
-      "hurl": {
-        "type": "string",
-        "meaning": "Human-readable URL slug for the category."
-      },
-      "i18n": {
-        "type": "object",
-        "meaning": "Localized category content by language.",
-        "shape": {
-          "<lang>": {
-            "type": "object",
-            "meaning": "Localized category entry.",
-            "shape": {
-              "name": {
-                "type": "string",
-                "meaning": "Localized category name."
-              },
-              "description": {
-                "type": "string",
-                "meaning": "Localized category description. Can be empty or absent."
-              }
-            }
-          }
-        }
-      },
-      "itemCount": {
-        "type": "number",
-        "meaning": "Number of items assigned to the category. May be stored or cached."
-      },
-      "position": {
-        "type": "number",
-        "meaning": "Category sort order inside its section."
-      },
-      "section": {
-        "type": "string",
-        "meaning": "Reference to `sections[]._id` that owns this category."
-      },
-      "posID": {
-        "type": "string",
-        "meaning": "External POS identifier for the category, if synced."
-      },
-      "posSync": {
-        "type": "object",
-        "meaning": "POS synchronization metadata for the category.",
-        "shape": {
-          "count": {
-            "type": "number",
-            "meaning": "Sync-related counter, likely total operations or linked records."
-          },
-          "syncCount": {
-            "type": "number",
-            "meaning": "Counter of completed sync operations or synced records."
-          },
-          "version": {
-            "type": "number",
-            "meaning": "POS sync schema/version number."
-          }
-        }
-      }
-    }
-  },
-  "config": {
-    "type": "object",
-    "meaning": "Delivery channel configuration: delivery zones, pricing, schedule, discounts, address rules, tips, and order handling.",
-    "shape": {
-      "distances": {
-        "type": "array",
-        "meaning": "Distance-based delivery pricing rules, usually grouped by service radius.",
-        "itemShape": {
-          "deliveryCost": {
-            "type": "array",
-            "meaning": "Pricing rules for this distance band.",
-            "itemShape": {
-              "orderAmount": {
-                "type": "number",
-                "meaning": "Order amount threshold used for this delivery pricing rule."
-              },
-              "deliveryAmount": {
-                "type": "number",
-                "meaning": "Delivery fee amount in the system's stored minor units or internal price format."
-              },
-              "costProperties": {
-                "type": "object",
-                "meaning": "Extra pricing behavior metadata for this rule.",
-                "shape": {
-                  "type": {
-                    "type": "string",
-                    "meaning": "Pricing mode, likely enum-like values such as `DEFINED` or `UNDEFINED`."
-                  },
-                  "i18n": {
-                    "type": "object",
-                    "meaning": "Localized explanation for special pricing behavior, if applicable.",
-                    "shape": {
-                      "<lang>": {
-                        "type": "object",
-                        "meaning": "Localized costProperties entry.",
-                        "shape": {
-                          "description": {
-                            "type": "string",
-                            "meaning": "Localized explanation text shown to the customer."
-                          },
-                          "name": {
-                            "type": "string",
-                            "meaning": "Localized title or label for the pricing rule."
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              },
-              "posID": {
-                "type": "string",
-                "meaning": "External POS identifier for the pricing rule, if synced."
-              }
-            }
-          },
-          "radius": {
-            "type": "number",
-            "meaning": "Maximum distance radius for this pricing band."
-          },
-          "enabled": {
-            "type": "boolean",
-            "meaning": "Whether this distance rule is active."
-          }
-        }
-      },
-      "polygons": {
-        "type": "array",
-        "meaning": "Polygon-based delivery zones, if polygon coverage is used instead of or in addition to radius rules."
-      },
-      "fixed": {
-        "type": "array",
-        "meaning": "Fixed delivery pricing rules or fixed delivery zones, if used."
-      },
-      "deliveryCost": {
-        "type": "array",
-        "meaning": "Fallback or legacy delivery cost rules, if used separately from distance/polygon/fixed strategies."
-      },
-      "workTime": {
-        "type": "array",
-        "meaning": "Delivery-specific working hours. Usually overrides or specializes general company working hours for the delivery channel.",
-        "itemShape": {
-          "dayOfWeek": {
-            "type": "number",
-            "meaning": "Day index, usually `0..6`. Exact mapping should be confirmed in product logic."
-          },
-          "active": {
-            "type": "boolean",
-            "meaning": "Whether delivery accepts orders on that day."
-          },
-          "from": {
-            "type": "string",
-            "meaning": "Opening time for delivery orders."
-          },
-          "till": {
-            "type": "string",
-            "meaning": "Closing time for delivery orders."
-          }
-        }
-      },
-      "discountCategories": {
-        "type": "array",
-        "meaning": "List of category IDs eligible for discount logic.",
-        "itemShape": "string"
-      },
-      "menuDiscount": {
-        "type": "array",
-        "meaning": "Discount rules based on order amount.",
-        "itemShape": {
-          "discount": {
-            "type": "number",
-            "meaning": "Discount value, most likely percentage unless product logic states otherwise."
-          },
-          "orderAmount": {
-            "type": "number",
-            "meaning": "Order amount threshold required to trigger the discount."
-          }
-        }
-      },
-      "time": {
-        "type": "object",
-        "meaning": "Delivery ordering time settings.",
-        "shape": {
-          "allowASAP": {
-            "type": "boolean",
-            "meaning": "Allows ASAP delivery orders."
-          },
-          "allowTime": {
-            "type": "boolean",
-            "meaning": "Allows choosing a scheduled delivery time."
-          },
-          "delay": {
-            "type": "number",
-            "meaning": "Default lead time before the earliest available delivery slot."
-          },
-          "interval": {
-            "type": "number",
-            "meaning": "Time slot interval step."
-          },
-          "preOrderSkipDelay": {
-            "type": "boolean",
-            "meaning": "Whether preorder flow can skip standard delay rules."
-          },
-          "allowNonWorkingOrder": {
-            "type": "boolean",
-            "meaning": "Allows placing delivery orders outside configured working hours."
-          },
-          "minPreOrdersDayCount": {
-            "type": "number",
-            "meaning": "Minimum number of days ahead required for preorder."
-          },
-          "maxPreOrdersDayCount": {
-            "type": "number",
-            "meaning": "Maximum number of days ahead available for preorder."
-          }
-        }
-      },
-      "type": {
-        "type": "string",
-        "meaning": "Delivery zone strategy type, likely enum-like values such as `radius`, and possibly polygon/fixed-based modes."
-      },
-      "strictMatch": {
-        "type": "boolean",
-        "meaning": "Whether address matching must strictly fit a configured delivery rule."
-      },
-      "toDoor": {
-        "type": "object",
-        "meaning": "Door-delivery behavior configuration.",
-        "shape": {
-          "active": {
-            "type": "boolean",
-            "meaning": "Whether door delivery is enabled."
-          },
-          "forcePublic": {
-            "type": "boolean",
-            "meaning": "Whether door-delivery option is always publicly visible or enforced."
-          }
-        }
-      },
-      "hideFloorApartmentField": {
-        "type": "boolean",
-        "meaning": "Whether floor/apartment address fields are hidden in checkout."
-      },
-      "allowNoStreetNumber": {
-        "type": "boolean",
-        "meaning": "Whether orders are allowed without a street number in the delivery address."
-      },
-      "description": {
-        "type": "string",
-        "meaning": "Delivery-specific description or customer-facing informational text."
-      },
-      "defaultTips": {
-        "type": "number | null",
-        "meaning": "Default tip value offered in delivery flow."
-      },
-      "tipsSettings": {
-        "type": "object",
-        "meaning": "Detailed tip configuration.",
-        "shape": {
-          "defaultTipsType": {
-            "type": "string",
-            "meaning": "Tip requirement/default mode, likely enum-like values such as `REQUIRED`."
-          },
-          "recipient": {
-            "type": "string",
-            "meaning": "Who receives the tips, for example `restaurant`."
-          },
-          "recipientAccount": {
-            "type": "string",
-            "meaning": "Internal account or balance destination for tips."
-          }
-        }
-      },
-      "additionalFees": {
-        "type": "object | null",
-        "meaning": "Additional fee configuration applied to delivery orders.",
-        "shape": {
-          "items": {
-            "type": "array",
-            "meaning": "Configured extra fee entries.",
-            "itemShape": {
-              "amount": {
-                "type": "number",
-                "meaning": "Fee amount in the system's stored minor units or internal price format."
-              },
-              "posID": {
-                "type": "string",
-                "meaning": "External POS identifier for the fee item, if synced."
-              },
-              "id": {
-                "type": "string",
-                "meaning": "Internal fee entry identifier."
-              },
-              "type": {
-                "type": "string",
-                "meaning": "Fee type, for example `areaFee`."
-              },
-              "i18n": {
-                "type": "object",
-                "meaning": "Localized fee label by language.",
-                "shape": {
-                  "<lang>": {
-                    "type": "object",
-                    "meaning": "Localized fee entry.",
-                    "shape": {
-                      "name": {
-                        "type": "string",
-                        "meaning": "Localized fee name."
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      },
-      "menuSync": {
-        "type": "boolean",
-        "meaning": "Whether delivery menu is synchronized with another source, likely POS or shared menu."
-      },
-      "discountWorkTime": {
-        "type": "object | array | null",
-        "meaning": "Time-based discount schedule configuration, if used."
-      },
-      "orderAutoAcceptance": {
-        "type": "object",
-        "meaning": "Automatic order acceptance behavior.",
-        "shape": {
-          "defaultPreparingTime": {
-            "type": "number",
-            "meaning": "Default preparation time for accepted orders."
-          },
-          "delayMinutes": {
-            "type": "number",
-            "meaning": "Extra acceptance delay added by automation logic."
-          }
-        }
-      },
-      "orderPhoneVerification": {
-        "type": "boolean",
-        "meaning": "Whether phone verification is required during delivery ordering."
-      }
-    }
-  },
-  "createdAt": {
+  "type": {
     "type": "string",
-    "format": "ISO datetime",
-    "meaning": "Delivery object creation timestamp."
+    "values": ["delivery"],
+    "meaning": "Area type — `delivery`."
   },
   "default": {
     "type": "boolean",
     "meaning": "Whether this is the default channel/menu."
   },
+  "guid": {
+    "type": "string",
+    "behavior": "Server-managed.",
+    "meaning": "Public or shareable short identifier."
+  },
+  "link": {
+    "type": "string",
+    "behavior": "Server-managed.",
+    "meaning": "Public delivery link."
+  },
+  "position": {
+    "type": "number",
+    "behavior": "Stripped from save payload.",
+    "meaning": "Sort order among other channels."
+  },
+  "i18n": {
+    "type": "object",
+    "shape": {
+      "<lang>": {
+        "type": "object",
+        "shape": {
+          "name": { "type": "string", "meaning": "Localized display name." },
+          "description": { "type": "string", "meaning": "Localized description, if any." }
+        }
+      }
+    }
+  },
   "emails": {
     "type": "array | object | null",
     "meaning": "Email-related configuration for notifications or routing, if used."
   },
-  "guid": {
+  "posID": {
+    "type": "string | null",
+    "behavior": "Edited via a POS id search field.",
+    "meaning": "External POS identifier for the delivery channel."
+  },
+  "createdAt": {
     "type": "string",
-    "meaning": "Public or shareable short identifier used in links or routing."
+    "format": "ISO datetime",
+    "behavior": "Stripped from save payload.",
+    "meaning": "Object creation timestamp."
   },
-  "i18n": {
-    "type": "object",
-    "meaning": "Localized delivery-level content by language.",
-    "shape": {
-      "<lang>": {
-        "type": "object",
-        "meaning": "Localized delivery object entry.",
-        "shape": {
-          "name": {
-            "type": "string",
-            "meaning": "Localized delivery display name."
-          },
-          "description": {
-            "type": "string",
-            "meaning": "Localized delivery description, if supported. Can be absent or empty."
-          }
-        }
-      }
-    }
+  "updatedAt": {
+    "type": "string",
+    "format": "ISO datetime",
+    "behavior": "Stripped from save payload.",
+    "meaning": "Object update timestamp."
   },
-  "items": {
+  "categories": {
     "type": "array",
-    "meaning": "List of menu items available in delivery.",
+    "behavior": "Read-only in this editor — managed via the menu editor.",
     "itemShape": {
-      "_id": {
-        "type": "string",
-        "meaning": "Internal item identifier."
-      },
-      "active": {
-        "type": "boolean",
-        "meaning": "Item active state."
-      },
-      "attributes": {
-        "type": "array",
-        "meaning": "List of item attribute flags or tags such as `SOLD_OUT`. Can be empty.",
-        "itemShape": "string"
-      },
-      "category": {
-        "type": "string",
-        "meaning": "Reference to `categories[]._id` that owns this item."
-      },
-      "createdAt": {
-        "type": "string",
-        "format": "ISO datetime",
-        "meaning": "Item creation timestamp."
-      },
-      "hurl": {
-        "type": "string",
-        "meaning": "Human-readable URL slug for the item."
-      },
+      "_id": { "type": "string" },
+      "active": { "type": "boolean" },
+      "createdAt": { "type": "string", "format": "ISO datetime" },
+      "hurl": { "type": "string" },
       "i18n": {
         "type": "object",
-        "meaning": "Localized item content by language.",
         "shape": {
           "<lang>": {
             "type": "object",
-            "meaning": "Localized item entry.",
             "shape": {
-              "name": {
-                "type": "string",
-                "meaning": "Localized item name."
-              },
-              "description": {
-                "type": "string",
-                "meaning": "Localized item description. Can be empty or absent."
-              }
+              "name": { "type": "string" },
+              "description": { "type": "string" }
             }
           }
         }
       },
-      "position": {
-        "type": "number",
-        "meaning": "Item sort order inside its category."
-      },
-      "price": {
-        "type": "number",
-        "meaning": "Item price in the system's stored minor units or internal price format."
-      },
-      "posID": {
-        "type": "string",
-        "meaning": "External POS identifier for the item, if synced."
+      "itemCount": { "type": "number" },
+      "position": { "type": "number" },
+      "section": { "type": "string", "meaning": "Reference to `sections[]._id`." },
+      "posID": { "type": "string" },
+      "posSync": {
+        "type": "object",
+        "shape": {
+          "count": { "type": "number" },
+          "syncCount": { "type": "number" },
+          "version": { "type": "number" }
+        }
       }
     }
-  },
-  "link": {
-    "type": "string",
-    "meaning": "Public delivery link."
-  },
-  "paymentMethods": {
-    "type": "object",
-    "meaning": "Enabled payment methods for delivery.",
-    "shape": {
-      "<paymentMethod>": {
-        "type": "boolean",
-        "meaning": "Whether the given payment method is enabled."
-      },
-      "card": {
-        "type": "boolean",
-        "meaning": "Whether card payment is allowed."
-      },
-      "cash": {
-        "type": "boolean",
-        "meaning": "Whether cash payment is allowed."
-      },
-      "bill": {
-        "type": "boolean",
-        "meaning": "Whether billing or invoice-style payment is allowed."
-      }
-    }
-  },
-  "posID": {
-    "type": "string",
-    "meaning": "External POS identifier for the delivery channel itself."
-  },
-  "position": {
-    "type": "number",
-    "meaning": "Delivery sort order among other channels or menus."
   },
   "sections": {
     "type": "array",
-    "meaning": "Top-level menu sections used to group categories.",
+    "behavior": "Read-only in this editor — managed via the menu editor.",
     "itemShape": {
-      "_id": {
-        "type": "string",
-        "meaning": "Internal section identifier."
-      },
-      "active": {
-        "type": "boolean",
-        "meaning": "Section active state."
-      },
+      "_id": { "type": "string" },
+      "active": { "type": "boolean" },
       "i18n": {
         "type": "object",
-        "meaning": "Localized section content by language.",
         "shape": {
           "<lang>": {
             "type": "object",
-            "meaning": "Localized section entry.",
             "shape": {
-              "name": {
-                "type": "string",
-                "meaning": "Localized section name."
-              },
-              "description": {
-                "type": "string",
-                "meaning": "Localized section description. Can be empty."
-              }
+              "name": { "type": "string" },
+              "description": { "type": "string" }
             }
           }
         }
       },
       "mode": {
         "type": "object",
-        "meaning": "Section behavior mode.",
         "shape": {
           "type": {
             "type": "string",
-            "meaning": "Section mode type, for example `interactive`, `static`, or `link`."
+            "values": ["interactive", "static", "link"]
           }
         }
       },
-      "position": {
-        "type": "number",
-        "meaning": "Section sort order."
+      "position": { "type": "number" }
+    }
+  },
+  "items": {
+    "type": "array",
+    "behavior": "Read-only in this editor — managed via the menu editor.",
+    "itemShape": {
+      "_id": { "type": "string" },
+      "active": { "type": "boolean" },
+      "attributes": {
+        "type": "array",
+        "itemShape": "string  // e.g. 'SOLD_OUT'"
+      },
+      "category": { "type": "string", "meaning": "Reference to `categories[]._id`." },
+      "createdAt": { "type": "string", "format": "ISO datetime" },
+      "hurl": { "type": "string" },
+      "i18n": {
+        "type": "object",
+        "shape": {
+          "<lang>": {
+            "type": "object",
+            "shape": {
+              "name": { "type": "string" },
+              "description": { "type": "string" }
+            }
+          }
+        }
+      },
+      "position": { "type": "number" },
+      "price": { "type": "number" },
+      "posID": { "type": "string" }
+    }
+  },
+  "paymentMethods": {
+    "type": "object",
+    "behavior": "At least one method must be enabled. The `online` method is only available when company-level `onlinePayment` is true.",
+    "shape": {
+      "card": { "type": "boolean", "meaning": "Whether card payment is allowed." },
+      "cash": { "type": "boolean", "meaning": "Whether cash payment is allowed." },
+      "bill": { "type": "boolean", "meaning": "Whether bill / invoice-style payment is allowed." },
+      "online": {
+        "type": "boolean",
+        "behavior": "Only available when `company.onlinePayment` is true.",
+        "meaning": "Whether online payment is allowed."
       }
     }
   },
-  "type": {
-    "type": "string",
-    "meaning": "Channel type. For this object it is expected to be `delivery`."
-  },
-  "updatedAt": {
-    "type": "string",
-    "format": "ISO datetime",
-    "meaning": "Delivery object update timestamp."
+  "config": {
+    "type": "object",
+    "behavior": "Channel-level behavior. Saved via `updateAreaDelivery`. Editor surfaces the delivery-zone strategy (`type` + the matching list editor), pricing rules, time settings, address-field rules, door-delivery toggle, description, tips, auto-acceptance, and phone verification.",
+    "shape": {
+      "type": {
+        "type": "string",
+        "values": ["fixed", "radius", "polygons"],
+        "default": "fixed",
+        "behavior": "Delivery-zone strategy. Selecting one renders only the matching list (FixedPriceForm / RadiusList / PolygonsList).",
+        "meaning": "Delivery zone strategy type."
+      },
+      "fixed": {
+        "type": "array",
+        "behavior": "Active when `type === 'fixed'`. Editor: FixedPriceForm.",
+        "itemShape": {
+          "orderAmount": { "type": "number", "meaning": "Order amount threshold." },
+          "deliveryAmount": { "type": "number", "meaning": "Delivery fee in stored minor units." },
+          "costProperties": {
+            "type": "object",
+            "shape": {
+              "type": {
+                "type": "string",
+                "values": ["DEFINED", "UNDEFINED"],
+                "meaning": "Pricing mode."
+              },
+              "i18n": {
+                "type": "object",
+                "shape": {
+                  "<lang>": {
+                    "type": "object",
+                    "shape": {
+                      "description": { "type": "string" },
+                      "name": { "type": "string" }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "posID": { "type": "string" }
+        }
+      },
+      "distances": {
+        "type": "array",
+        "behavior": "Active when `type === 'radius'`. Editor: RadiusList. Each band has its own deliveryCost rule list and a `radius` (capped at MAX_DELIVERY_RADIUS = 30 km).",
+        "itemShape": {
+          "id": { "type": "string", "meaning": "Internal band id." },
+          "radius": { "type": "string | number", "constraint": "<= 30", "meaning": "Maximum distance radius." },
+          "enabled": { "type": "boolean", "meaning": "Whether this distance rule is active." },
+          "deliveryCost": {
+            "type": "array",
+            "itemShape": {
+              "orderAmount": { "type": "number" },
+              "deliveryAmount": { "type": "number" },
+              "costProperties": {
+                "type": "object",
+                "shape": {
+                  "type": {
+                    "type": "string",
+                    "values": ["DEFINED", "UNDEFINED"]
+                  },
+                  "i18n": {
+                    "type": "object",
+                    "shape": {
+                      "<lang>": {
+                        "type": "object",
+                        "shape": {
+                          "description": { "type": "string" },
+                          "name": { "type": "string" }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "posID": { "type": "string" }
+            }
+          }
+        }
+      },
+      "polygons": {
+        "type": "array",
+        "behavior": "Active when `type === 'polygons'`. Editor: PolygonsList. Each polygon defines its own boundary points and pricing.",
+        "itemShape": {
+          "id": { "type": "string" },
+          "name": { "type": "string", "meaning": "Polygon zone name." },
+          "enabled": { "type": "boolean" },
+          "points": {
+            "type": "array",
+            "itemShape": {
+              "lat": { "type": "number" },
+              "lng": { "type": "number" }
+            }
+          },
+          "deliveryCost": {
+            "type": "array",
+            "itemShape": {
+              "orderAmount": { "type": "number" },
+              "deliveryAmount": { "type": "number" },
+              "costProperties": {
+                "type": "object",
+                "shape": {
+                  "type": {
+                    "type": "string",
+                    "values": ["DEFINED", "UNDEFINED"]
+                  }
+                }
+              },
+              "posID": { "type": "string" }
+            }
+          }
+        }
+      },
+      "deliveryCost": {
+        "type": "array",
+        "meaning": "Fallback / legacy delivery cost rules used in some configurations."
+      },
+      "strictMatch": {
+        "type": "boolean",
+        "default": true,
+        "meaning": "Whether address matching must strictly fit a configured delivery rule."
+      },
+      "toDoor": {
+        "type": "object",
+        "behavior": "Door-delivery configuration shown only when relevant zone settings are configured.",
+        "shape": {
+          "active": { "type": "boolean", "meaning": "Whether door delivery is enabled." },
+          "price": { "type": "number", "meaning": "Optional door-delivery surcharge." },
+          "forcePublic": { "type": "boolean", "meaning": "Whether door-delivery option is always publicly visible." }
+        }
+      },
+      "hideFloorApartmentField": {
+        "type": "boolean",
+        "meaning": "Whether floor/apartment address fields are hidden during checkout."
+      },
+      "allowNoStreetNumber": {
+        "type": "boolean",
+        "behavior": "Stripped from save payload.",
+        "meaning": "Whether orders are allowed without a street number."
+      },
+      "menuDiscount": {
+        "type": "array",
+        "behavior": "Discount rules paired with `discountCategories` and `discountWorkTime`. The editor (DiscountList) supports multiple thresholds.",
+        "itemShape": {
+          "discount": { "type": "number", "unit": "%" },
+          "orderAmount": { "type": "number" }
+        }
+      },
+      "discountCategories": {
+        "type": "array",
+        "itemShape": "string  // category._id",
+        "meaning": "List of category IDs eligible for discount logic."
+      },
+      "discountWorkTime": {
+        "type": "array | null",
+        "behavior": "Toggle: `permanent` ⇒ null, `limited_time` ⇒ schedule. Defaults to `company.workTime` (or a Mon–Sun 12:00–15:00 schedule) when limited-time mode is first enabled.",
+        "itemShape": {
+          "dayOfWeek": { "type": "number", "values": [0, 1, 2, 3, 4, 5, 6] },
+          "active": { "type": "boolean" },
+          "from": { "type": "string", "format": "HH:mm" },
+          "till": { "type": "string", "format": "HH:mm" }
+        }
+      },
+      "time": {
+        "type": "object",
+        "default": {
+          "allowTime": true,
+          "allowASAP": true,
+          "delay": 15,
+          "interval": 15,
+          "minPreOrdersDayCount": 0,
+          "maxPreOrdersDayCount": 0
+        },
+        "behavior": "Validation: `allowASAP || allowTime` must be true.",
+        "shape": {
+          "allowASAP": { "type": "boolean", "default": true },
+          "allowTime": { "type": "boolean", "default": true },
+          "delay": { "type": "number", "default": 15, "unit": "minutes" },
+          "interval": { "type": "number", "default": 15, "unit": "minutes" },
+          "preOrderSkipDelay": { "type": "boolean" },
+          "allowNonWorkingOrder": { "type": "boolean" },
+          "minPreOrdersDayCount": { "type": "number", "default": 0 },
+          "maxPreOrdersDayCount": { "type": "number", "default": 0 }
+        }
+      },
+      "menuSync": {
+        "type": "boolean",
+        "meaning": "Whether delivery menu is synchronised with another source (POS / shared menu)."
+      },
+      "workTime": {
+        "type": "array",
+        "behavior": "Edited in the dedicated WorkingHoursForm block. Stripped from this form's save payload.",
+        "itemShape": {
+          "dayOfWeek": { "type": "number", "values": [0, 1, 2, 3, 4, 5, 6] },
+          "active": { "type": "boolean" },
+          "from": { "type": "string", "format": "HH:mm" },
+          "till": { "type": "string", "format": "HH:mm" }
+        }
+      },
+      "additionalFees": {
+        "type": "object | null",
+        "behavior": "Edited via the AdditionalPayment block (hidden when chain-ordering features are active).",
+        "shape": {
+          "items": {
+            "type": "array",
+            "itemShape": {
+              "id": { "type": "string" },
+              "type": { "type": "string", "values": ["areaFee", "..."] },
+              "amount": { "type": "number" },
+              "posID": { "type": "string" },
+              "i18n": {
+                "type": "object",
+                "shape": {
+                  "<lang>": {
+                    "type": "object",
+                    "shape": {
+                      "name": { "type": "string" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "description": {
+        "type": "string",
+        "default": "",
+        "behavior": "Multi-line text field with character counter; supports emoji input.",
+        "meaning": "Delivery-specific description shown to customers."
+      },
+      "orderAutoAcceptance": {
+        "type": "object",
+        "behavior": "When `active` is true, sub-fields are revealed. Validation: `defaultPreparingTime >= 5`. Defaults seeded: `defaultPreparingTime = 15`, `delayMinutes = 2`. Hidden when chain-ordering feature is active.",
+        "shape": {
+          "active": { "type": "boolean" },
+          "defaultPreparingTime": {
+            "type": "number",
+            "unit": "minutes",
+            "default": 15,
+            "constraint": ">= 5"
+          },
+          "delayMinutes": {
+            "type": "number | null",
+            "default": 2,
+            "constraint": "<= 15",
+            "behavior": "null = immediate acceptance, otherwise delay in minutes (max 15)."
+          },
+          "acceptNonWorkingHoursPreOrder": {
+            "type": "boolean",
+            "default": true
+          }
+        }
+      },
+      "defaultTips": {
+        "type": "number | null",
+        "behavior": "Edited via the TipsBlock (hidden when chain-ordering feature is active).",
+        "meaning": "Default tip value offered in the delivery flow."
+      },
+      "tipsSettings": {
+        "type": "object",
+        "shape": {
+          "defaultTipsType": {
+            "type": "string",
+            "values": ["REQUIRED", "..."],
+            "meaning": "Tip requirement/default mode."
+          },
+          "recipient": {
+            "type": "string",
+            "values": ["restaurant", "staff"],
+            "meaning": "Who receives the tips."
+          },
+          "recipientAccount": {
+            "type": "string | null",
+            "values": ["globalTips", "adyen", "noSplitting", null],
+            "meaning": "Account/balance destination for tips."
+          },
+          "customTipsList": {
+            "type": "array",
+            "itemShape": {
+              "value": { "type": "number" }
+            }
+          }
+        }
+      },
+      "orderPhoneVerification": {
+        "type": "boolean",
+        "behavior": "Enabling it shows a warning toast if `smsDeliveryTakeaway` feature is not active.",
+        "meaning": "Whether phone verification is required during delivery ordering."
+      }
+    }
   },
   "posSync": {
     "type": "object",
-    "meaning": "POS synchronization metadata for the delivery object.",
+    "behavior": "Server-managed.",
     "shape": {
-      "count": {
-        "type": "number",
-        "meaning": "Sync-related counter, likely total operations or linked records."
-      },
-      "syncCount": {
-        "type": "number",
-        "meaning": "Counter of completed sync operations or synced records."
-      },
-      "version": {
-        "type": "number",
-        "meaning": "POS sync schema/version number."
-      }
+      "count": { "type": "number" },
+      "syncCount": { "type": "number" },
+      "version": { "type": "number" }
     }
   },
   "location_points": {
     "type": "array",
-    "meaning": "Location points related to delivery fulfillment or channel binding. Can be empty.",
-    "itemShape": "object"
+    "meaning": "Location points related to delivery fulfillment / channel binding. Usually empty."
   }
 }
 ```
-
